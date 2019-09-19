@@ -1,6 +1,6 @@
 COMPILER = mpicc
 CFLAGS = -Wall
-EXES = torus mkRandomMatrix mkIdentityMatrix mkZeroMatrix getMatrix
+EXES = matrix_processor mkRandomMatrix mkIdentityMatrix mkZeroMatrix getMatrix
 CFILES = I R RI IR
 all: ${EXES}
 
@@ -21,8 +21,8 @@ mkZeroMatrix:    mkZeroMatrix.c  matrix.o
 %.o: %.c %.h  makefile
 	${COMPILER} ${CFLAGS} $< -c 
 
-m_neighbours: m_neighbours.c matrix.o
-	${COMPILER} ${CFLAGS} m_neighbours.c matrix.o -o m_neighbours
+matrix_processor: matrix_processor.c matrix.o
+	${COMPILER} ${CFLAGS} matrix_processor.c matrix.o -o matrix_processor
 
 clean:
 	rm -f *.o *~ ${EXES} ${CFILES}

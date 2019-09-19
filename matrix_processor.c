@@ -1,5 +1,7 @@
 /* Matrix processing in mpi . 
- * Elements are replaced by the sum of their neighbours */
+ * Elements are replaced by the average of their neighbours 
+ * 
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
@@ -9,10 +11,23 @@
 #include "mpi.h"
 #include "matrix.h"
 #define MainProcess 0
-#define UseRows 3
+#define UseRows 2
 
-int
-parse_args (int argc, char *argv[], int *fd, int *np)
+// Number of rows each process calculates
+int rows;
+// Number of extra rows the first row gets (if the split isn't even)
+int frow = 0;
+
+/**
+ * TO DO
+ * -----
+ * - Implement Way to Send multiple rows to a single process
+ * - See if you can determine a matrix's size/dimension without being passed it?
+ * - Document!
+ * 
+ */
+
+int parse_args (int argc, char *argv[], int *fd, int *np)
 {
   if ((argc != 4) ||
       ((fd[0] = open (argv[1], O_RDONLY)) == -1) ||
@@ -26,10 +41,10 @@ parse_args (int argc, char *argv[], int *fd, int *np)
   return 0;
 }
 
-int
-main (int argc, char *argv[])
+
+int main (int argc, char *argv[])
 {
-  int me, row, col, fd[2], i, j, nprocs, dim;
+  int me, row, col, fd[2], i, j, r, nprocs, dim;
 
   MPI_Init (&argc, &argv);
   MPI_Comm_rank (MPI_COMM_WORLD, &me);
@@ -49,17 +64,28 @@ main (int argc, char *argv[])
   /* broadcaste dim to all */
   MPI_Bcast (&dim, 1, MPI_INT, MainProcess, MPI_COMM_WORLD);
 
-  if (dim != nprocs)
-    {
-      if (me == MainProcess)
-	    fprintf (stderr,
-		 "Usage: mpirun -np dimension %s matrixA matrixB dimension\n", argv[0]);
-      MPI_Finalize ();
-      exit (EXIT_FAILURE);
-    }
+  // if (dim != nprocs) {
+  //     if (me == MainProcess)
+  //       fprintf (stderr,
+  //       "Usage: mpirun -np dimension %s matrixA matrixB dimension\n", argv[0]);
+  //     MPI_Finalize ();
+  //     exit (EXIT_FAILURE);
+  // }
+
+  if (dim == nprocs || nprocs > dim) {
+    rows = 1;
+  } else if (dim%nprocs == 0) {
+    rows = dim/nprocs;
+  } else {
+    rows = dim/nprocs;
+    frow = dim%nprocs;
+  }
+
+  int totalRows = UseRows + rows;
 
   int A[dim + 1][dim + 1], P[dim + 1][dim + 1], superA[dim + 2][dim + 2];
-  int Arow[UseRows][dim + 2], Prow[dim + 2];
+  int Arow[totalRows][dim + 2], Prow[rows][dim+2];
+  //int *Prow = (int *)malloc(rows*(dim + 2)*sizeof(int));
 
   if (me == MainProcess) {				
     /* parent code */
@@ -81,42 +107,64 @@ main (int argc, char *argv[])
   }
 
   /* Scatter super sized A */
-  for (i = 0; i < UseRows; i++)
+  for (i = 0; i < totalRows; i++) {
     if (MPI_Scatter (&superA[i],
-		     dim + 2,
+		     (dim + 2)*rows,
 		     MPI_INT,
 		     &Arow[i],
-		     dim + 2,
+		     (dim + 2)*rows,
 		     MPI_INT, MainProcess, MPI_COMM_WORLD) != MPI_SUCCESS)
       {
         fprintf (stderr, "Scattering of A failed\n");
         goto fail;
       }
+  }
   
   int count = -1;
-  /* compute my row of P */
-  for (i = 1; i < dim + 1; i++) {
-    Prow[i] = -Arow[1][i];
-    for (j = 0; j < UseRows; j++) {
-      if (Arow[j][i - 1] != 0) count++;
-      if (Arow[j][i] != 0) count++;
-      if (Arow[j][i + 1] != 0) count++;
-      Prow[i] += Arow[j][i - 1] + Arow[j][i] + Arow[j][i + 1];
-    }
-    Prow[i] /= count;
-  }
+  
+  if (me > dim) MPI_Finalize ();
 
+  for (r = 1; r < rows + 1; r++) {
+      for (i = 1; i < dim + 1; i++) {
+        Prow[r][i] = -Arow[r][i];
+        for (j = r-1; j < UseRows + r; j++) {
+          printf("%d %d %d\n", Arow[j][i - 1], Arow[j][i], Arow[j][i + 1] );
+          if (Arow[j][i - 1] != 0) count++;
+          if (Arow[j][i] != 0) count++;
+          if (Arow[j][i + 1] != 0) count++;
+          Prow[r][i] += Arow[j][i - 1] + Arow[j][i] + Arow[j][i + 1];
+        }
+        printf("%d\n",count);
+        Prow[r][i] /= count;
+        count = -1;
+        printf("Process %d: Element: %d\n", me , Prow[r][i]);
+      }
+      printf("New row!\n");
+      printf("r = %d\n",r);
+  }
+  
   /* Gather rows of P */
-  if (MPI_Gather (&Prow[0],
-		  dim + 1,
-		  MPI_INT,
-		  &P[1][0],
-		  dim + 1,
-		  MPI_INT, MainProcess, MPI_COMM_WORLD) != MPI_SUCCESS)
+  if (MPI_Gather (&Prow[1][0],
+      (dim+1)*rows,
+      MPI_INT,
+      &P[1][0],
+      (dim+1)*rows,
+      MPI_INT, MainProcess, MPI_COMM_WORLD) != MPI_SUCCESS)
     {
       fprintf (stderr, "Gathering of Product  failed\n");
       goto fail;
     }
+    // if (MPI_Gather (&Prow[0],
+    // 	  dim + 1,
+    // 	  MPI_INT,
+    // 	  &P[1][0],
+    // 	  dim + 1,
+    // 	  MPI_INT, MainProcess, MPI_COMM_WORLD) != MPI_SUCCESS)
+    //   {
+    //     fprintf (stderr, "Gathering of Product  failed\n");
+    //     goto fail;
+    //   }
+
 
   /* write the matrix to a file */
   if (me == MainProcess) {
