@@ -50,7 +50,7 @@ int main (int argc, char *argv[])
   MPI_Comm_rank (MPI_COMM_WORLD, &me);
   MPI_Comm_size (MPI_COMM_WORLD, &nprocs);
 
-
+  
   if (me == MainProcess)
     {				/* parent code */
 
@@ -84,7 +84,7 @@ int main (int argc, char *argv[])
   int totalRows = UseRows + rows;
 
   int A[dim + 1][dim + 1], P[dim + 1][dim + 1], superA[dim + 2][dim + 2];
-  int Arow[totalRows][dim + 2], Prow[rows][dim+2];
+  int Arow[totalRows][dim + 2], Prow[rows][dim + 1];
   //int *Prow = (int *)malloc(rows*(dim + 2)*sizeof(int));
 
   if (me == MainProcess) {				
@@ -106,6 +106,8 @@ int main (int argc, char *argv[])
         superA[row][col] = A[row][col];
   }
 
+  
+  
   /* Scatter super sized A */
   for (i = 0; i < totalRows; i++) {
     if (MPI_Scatter (&superA[i],
@@ -122,26 +124,30 @@ int main (int argc, char *argv[])
   
   int count = -1;
   
-  if (me > dim) MPI_Finalize ();
-
-  for (r = 1; r < rows + 1; r++) {
-      for (i = 1; i < dim + 1; i++) {
-        Prow[r][i] = -Arow[r][i];
-        for (j = r-1; j < UseRows + r; j++) {
-          printf("%d %d %d\n", Arow[j][i - 1], Arow[j][i], Arow[j][i + 1] );
-          if (Arow[j][i - 1] != 0) count++;
-          if (Arow[j][i] != 0) count++;
-          if (Arow[j][i + 1] != 0) count++;
-          Prow[r][i] += Arow[j][i - 1] + Arow[j][i] + Arow[j][i + 1];
-        }
-        printf("%d\n",count);
-        Prow[r][i] /= count;
-        count = -1;
-        printf("Process %d: Element: %d\n", me , Prow[r][i]);
+  
+  
+  if (me < dim) {
+    for (r = 1; r < rows + 1; r++) {
+    for (i = 1; i < dim + 1; i++) {
+      Prow[r][i] = -Arow[r][i];
+      for (j = r-1; j < UseRows + r; j++) {
+        printf("%d %d %d\n", Arow[j][i - 1], Arow[j][i], Arow[j][i + 1] );
+        if (Arow[j][i - 1] != 0) count++;
+        if (Arow[j][i] != 0) count++;
+        if (Arow[j][i + 1] != 0) count++;
+        Prow[r][i] += Arow[j][i - 1] + Arow[j][i] + Arow[j][i + 1];
       }
-      printf("New row!\n");
-      printf("r = %d\n",r);
+      printf("%d\n",count);
+      Prow[r][i] /= count;
+      count = -1;
+      printf("Process %d: Element: %d\n", me , Prow[r][i]);
+    }
+    printf("New row!\n");
+    printf("r = %d\n",r);
+    }
+
   }
+    
   
   /* Gather rows of P */
   if (MPI_Gather (&Prow[1][0],

@@ -1,5 +1,5 @@
 COMPILER = mpicc
-CFLAGS = -Wall
+CFLAGS = -Wall -std=c99
 EXES = matrix_processor mkRandomMatrix mkIdentityMatrix mkZeroMatrix getMatrix
 CFILES = I R RI IR
 all: ${EXES}
